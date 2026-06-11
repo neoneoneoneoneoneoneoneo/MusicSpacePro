@@ -483,3 +483,29 @@ static BOOL hasHijacked = NO;
     }
 }
 %end
+
+// =========================================================
+// 🔓 Googleログイン突破パッチ (YTSignInFix)
+// =========================================================
+%hook SSORPCService
++ (id)URLFromURL:(id)arg1 withAdditionalFragmentParameters:(NSDictionary *)arg2 {
+    NSURL *orig = %orig;
+    if (!orig) return nil;
+    
+    NSURLComponents *urlComponents = [[NSURLComponents alloc] initWithURL:orig resolvingAgainstBaseURL:NO];
+    NSMutableArray *newQueryItems = [urlComponents.queryItems mutableCopy];
+    
+    for (NSURLQueryItem *queryItem in urlComponents.queryItems) {
+        if ([queryItem.name isEqualToString:@"system_version"]
+            || [queryItem.name isEqualToString:@"app_version"]
+            || [queryItem.name isEqualToString:@"kdlc"]
+            || [queryItem.name isEqualToString:@"kss"]
+            || [queryItem.name isEqualToString:@"lib_ver"]
+            || [queryItem.name isEqualToString:@"device_model"]) {
+            [newQueryItems removeObject:queryItem];
+        }
+    }
+    urlComponents.queryItems = [newQueryItems copy];
+    return urlComponents.URL;
+}
+%end
