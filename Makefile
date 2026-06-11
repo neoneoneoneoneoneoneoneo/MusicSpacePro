@@ -7,7 +7,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = MusicSpacePro
 
 MusicSpacePro_FILES = Tweak.x
-MusicSpacePro_CFLAGS = -fobjc-arc
+MusicSpacePro_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
 MusicSpacePro_FRAMEWORKS = UIKit Foundation AVFoundation MediaPlayer
 
 include $(THEOS_MAKE_PATH)/tweak.mk
