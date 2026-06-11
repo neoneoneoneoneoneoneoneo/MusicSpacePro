@@ -2,13 +2,24 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <MediaPlayer/MediaPlayer.h>
+#include <dlfcn.h> // 🌟究極の裏技ツールをインポート
 
 // =========================================================
-// 🎵 MediaRemote (iOSシステムレベルの再生コントロール)
+// 🎵 MediaRemote (強制ダイナミックロード版)
 // =========================================================
-extern Boolean MRMediaRemoteSendCommand(int command, id options);
 #define MR_TOGGLE_PLAY_PAUSE 2
 #define MR_PAUSE 1
+
+// クラウドMacのエラーを回避するため、実行時にiPhone内部から直接コマンドを引っ張り出す
+void SendMRCommand(int command) {
+    void *mr = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY);
+    if (mr) {
+        Boolean (*MRSendCommand)(int, id) = dlsym(mr, "MRMediaRemoteSendCommand");
+        if (MRSendCommand) {
+            MRSendCommand(command, nil);
+        }
+    }
+}
 
 @class MyMainContainerViewController;
 
@@ -218,10 +229,6 @@ extern Boolean MRMediaRemoteSendCommand(int command, id options);
     [searchBar resignFirstResponder];
     NSString *query = searchBar.text;
     if (!query || query.length == 0) return;
-
-    // 🚀 SpotifyのAPIは削除しました。
-    // YouTube Music内部の検索コントローラーを直接呼び出すか、
-    // バックグラウンドでYouTube Data APIを叩くロジックを今後ここに追加します。
     NSLog(@"Music Space Pro: Search requested for %@", query);
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.searchResults.count; }
@@ -299,8 +306,6 @@ extern Boolean MRMediaRemoteSendCommand(int command, id options);
 }
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     NSURL *url = urls.firstObject; if (!url) return;
-    
-    // サンドボックス外のファイルにアクセスするための権限を要求
     BOOL accessing = [url startAccessingSecurityScopedResource];
     
     if ([self.currentSelectingChannel isEqualToString:@"L"]) {
@@ -311,7 +316,6 @@ extern Boolean MRMediaRemoteSendCommand(int command, id options);
         [self.audioPlayerR prepareToPlay]; self.playBtnR.enabled = YES;
     }
     [self updateVolumes];
-    
     if (accessing) [url stopAccessingSecurityScopedResource];
 }
 - (void)togglePlayL {
@@ -319,8 +323,7 @@ extern Boolean MRMediaRemoteSendCommand(int command, id options);
         [self.audioPlayerL pause]; 
         [self.playBtnL setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal]; 
     } else { 
-        // ⚠️ ローカル再生時に裏のYouTube Musicを一時停止させる
-        MRMediaRemoteSendCommand(MR_PAUSE, nil);
+        SendMRCommand(MR_PAUSE); // 🌟裏技でYouTubeを停止
         [self.audioPlayerL play]; 
         [self.playBtnL setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal]; 
     }
@@ -330,8 +333,7 @@ extern Boolean MRMediaRemoteSendCommand(int command, id options);
         [self.audioPlayerR pause]; 
         [self.playBtnR setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal]; 
     } else { 
-        // ⚠️ ローカル再生時に裏のYouTube Musicを一時停止させる
-        MRMediaRemoteSendCommand(MR_PAUSE, nil);
+        SendMRCommand(MR_PAUSE); // 🌟裏技でYouTubeを停止
         [self.audioPlayerR play]; 
         [self.playBtnR setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal]; 
     }
@@ -398,7 +400,7 @@ extern Boolean MRMediaRemoteSendCommand(int command, id options);
     [self.miniPlayerPlayBtn setImage:[UIImage systemImageNamed:isPlaying ? @"pause.fill" : @"play.fill"] forState:UIControlStateNormal];
 }
 - (void)miniPlayerPlayTapped {
-    MRMediaRemoteSendCommand(MR_TOGGLE_PLAY_PAUSE, nil);
+    SendMRCommand(MR_TOGGLE_PLAY_PAUSE); // 🌟裏技でYouTubeを操作
 }
 @end
 
@@ -444,7 +446,6 @@ extern Boolean MRMediaRemoteSendCommand(int command, id options);
 // =========================================================
 static BOOL hasHijacked = NO;
 
-// コントロールセンターやバックグラウンド再生の情報を監視
 %hook MPNowPlayingInfoCenter
 - (void)setNowPlayingInfo:(NSDictionary *)info {
     %orig;
@@ -462,14 +463,11 @@ static BOOL hasHijacked = NO;
 }
 %end
 
-// YouTube Musicが画面を描画しようとしたタイミングで、自作UIを強制的に被せる
 %hook UIViewController
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    // 自作のクラスは除外
     if ([NSStringFromClass([self class]) hasPrefix:@"My"]) return;
 
-    // 画面の一番上(rootViewController)が読み込まれたら乗っ取る
     if (!hasHijacked && self.view.window && self.view.window.rootViewController == self) {
         hasHijacked = YES;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
