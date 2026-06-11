@@ -9,6 +9,5 @@ TWEAK_NAME = MusicSpacePro
 MusicSpacePro_FILES = Tweak.x
 MusicSpacePro_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
 MusicSpacePro_FRAMEWORKS = UIKit Foundation AVFoundation MediaPlayer
-MusicSpacePro_PRIVATE_FRAMEWORKS = MediaRemote
 
 include $(THEOS_MAKE_PATH)/tweak.mk
