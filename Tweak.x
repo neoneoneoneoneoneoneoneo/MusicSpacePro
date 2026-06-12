@@ -487,7 +487,7 @@ void SendMRCommand(int command) {
 @end
 
 // =========================================================
-// 🚀 3. フック部分 (YouTube Musicの乗っ取り＆絶対領域生成)
+// 🚀 3. フック部分 (YouTube Musicの乗っ取り・超安定版)
 // =========================================================
 
 %hook MPNowPlayingInfoCenter
@@ -507,9 +507,6 @@ void SendMRCommand(int command) {
 }
 %end
 
-// 最上位に君臨し続けるための専用ウィンドウ（絶対領域）
-static UIWindow *musicSpaceWindow = nil;
-
 %hook UIViewController
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
@@ -519,27 +516,30 @@ static UIWindow *musicSpaceWindow = nil;
 
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        // アプリが安定するまで1.5秒待つ
+        // 1.5秒待機（ここまでは前回成功したのと同じ）
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             
-            // 🛡️ 本物のYouTube Musicから「Scene（通行証）」を奪い取る！
-            UIWindowScene *windowScene = self.view.window.windowScene;
-            
-            if (windowScene) {
-                musicSpaceWindow = [[UIWindow alloc] initWithWindowScene:windowScene];
-            } else {
-                musicSpaceWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+            // 安全に一番手前の画面（TopVC）を探す
+            UIWindow *keyWindow = nil;
+            for (UIWindow *window in [UIApplication sharedApplication].windows) {
+                if (window.isKeyWindow) {
+                    keyWindow = window;
+                    break;
+                }
             }
-            
-            // アラートよりも上に固定
-            musicSpaceWindow.windowLevel = UIWindowLevelAlert + 1;
-            
-            // 自作UIをセットして表示！
+            if (!keyWindow) return;
+
+            UIViewController *topVC = keyWindow.rootViewController;
+            while (topVC.presentedViewController) {
+                topVC = topVC.presentedViewController;
+            }
+
+            // 無理にウィンドウを作らず、素直に全画面でかぶせる！（最も安定）
             MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
-            musicSpaceWindow.rootViewController = c;
-            [musicSpaceWindow makeKeyAndVisible];
+            c.modalPresentationStyle = UIModalPresentationFullScreen;
+            [topVC presentViewController:c animated:YES completion:nil];
             
-            NSLog(@"Music Space Pro: Absolute Overlay Window Activated with Scene!");
+            NSLog(@"Music Space Pro: Stable Overlay Activated!");
         });
     });
 }
