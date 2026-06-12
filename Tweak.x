@@ -38,6 +38,8 @@ void SendMRCommand(int command) {
 
 @interface MyHomeViewController : UIViewController
 @property (nonatomic, assign) MyMainContainerViewController *containerVC;
+@property (nonatomic, strong) NSMutableArray *trendingResults;
+@property (nonatomic, strong) NSMutableArray *cardViews;
 @end
 
 @interface MySearchViewController : UIViewController <UISearchBarDelegate, UITableViewDataSource, UITableViewDelegate>
@@ -164,6 +166,7 @@ void SendMRCommand(int command) {
 
 @implementation MySidebarViewController
 - (void)viewDidLoad {
+    [super iPad];
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.1 alpha:1.0];
 
@@ -194,17 +197,78 @@ void SendMRCommand(int command) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.05 alpha:1.0];
+    self.trendingResults = [NSMutableArray array];
+    self.cardViews = [NSMutableArray array];
     [self addCustomHeaderWithTitle:@"ホーム" container:self.containerVC];
 
     UILabel *welcome = [[UILabel alloc] initWithFrame:CGRectMake(20, 120, 300, 30)];
     welcome.text = @"あなたへのおすすめ"; welcome.textColor = [UIColor whiteColor]; welcome.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     [self.view addSubview:welcome];
 
-    // 今はまだ空のカードですが、ここに将来APIから取ったデータが入ります
+    // 4つのカードのスロットを生成
     for (int i=0; i<4; i++) {
         UIView *card = [[UIView alloc] initWithFrame:CGRectMake(20 + (i%2)*170, 160 + (i/2)*180, 160, 170)];
         card.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.05]; card.layer.cornerRadius = 8;
+        card.tag = i;
+        
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(cardTapped:)];
+        [card addGestureRecognizer:tap];
+        
+        UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 100, 140, 40)];
+        titleLabel.textColor = [UIColor whiteColor]; titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+        titleLabel.numberOfLines = 2; titleLabel.tag = 101;
+        titleLabel.text = @"読み込み中...";
+        [card addSubview:titleLabel];
+        
+        UILabel *artistLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 144, 140, 20)];
+        artistLabel.textColor = [UIColor lightGrayColor]; artistLabel.font = [UIFont systemFontOfSize:10];
+        artistLabel.tag = 102;
+        [card addSubview:artistLabel];
+        
         [self.view addSubview:card];
+        [self.cardViews addObject:card];
+    }
+    
+    // 🌐 【新配線】YouTubeのトレンド（人気曲）を裏から爆速で4曲取得しておすすめに格納
+    NSURL *url = [NSURL URLWithString:@"https://vid.puffyan.us/api/v1/popular"];
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (data && !error) {
+            NSArray *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            if ([json isKindOfClass:[NSArray class]]) {
+                for (NSDictionary *item in json) {
+                    if (self.trendingResults.count >= 4) break;
+                    NSString *title = item[@"title"];
+                    NSString *artist = item[@"author"];
+                    NSString *vID = item[@"videoId"];
+                    if (title && artist && vID) {
+                        [self.trendingResults addObject:@{@"title": title, @"artist": artist, @"videoId": vID}];
+                    }
+                }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    for (int i=0; i<self.trendingResults.count; i++) {
+                        if (i >= self.cardViews.count) break;
+                        NSDictionary *dataItem = self.trendingResults[i];
+                        UIView *card = self.cardViews[i];
+                        UILabel *tLbl = [card viewWithTag:101];
+                        UILabel *aLbl = [card viewWithTag:102];
+                        tLbl.text = dataItem[@"title"];
+                        aLbl.text = dataItem[@"artist"];
+                    }
+                });
+            }
+        }
+    }];
+    [task resume];
+}
+
+- (void)cardTapped:(UITapGestureRecognizer *)gesture {
+    NSInteger index = gesture.view.tag;
+    if (index < self.trendingResults.count) {
+        NSDictionary *item = self.trendingResults[index];
+        NSString *vID = item[@"videoId"];
+        // 🔗 鍵（動画ID）を使って、裏のYouTube Musicに直接高音質ストリーミング再生を命令！
+        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"youtubemusic://watch?v=%@", vID]];
+        [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
     }
 }
 @end
@@ -225,24 +289,29 @@ void SendMRCommand(int command) {
     self.tableView.backgroundColor = [UIColor clearColor]; self.tableView.dataSource = self; self.tableView.delegate = self;
     [self.view addSubview:self.tableView];
 }
+
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
     NSString *query = searchBar.text;
     if (!query || query.length == 0) return;
     
-    // 🌐 外部APIを使って本物の曲データを取得してリストに表示する
     NSString *encodedQuery = [query stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://itunes.apple.com/search?term=%@&entity=song&country=jp&limit=30", encodedQuery]];
+    // 🌐 【新配線】YouTubeの動画IDが直接引っこ抜ける検索APIへ接続変更
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://vid.puffyan.us/api/v1/search?q=%@&type=video", encodedQuery]];
     
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (data && !error) {
-            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            NSArray *results = json[@"results"];
+            NSArray *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
             NSMutableArray *newResults = [NSMutableArray array];
-            for (NSDictionary *item in results) {
-                NSString *title = item[@"trackName"];
-                NSString *artist = item[@"artistName"];
-                if (title && artist) [newResults addObject:@{@"title": title, @"artist": artist}];
+            if ([json isKindOfClass:[NSArray class]]) {
+                for (NSDictionary *item in json) {
+                    NSString *title = item[@"title"];
+                    NSString *artist = item[@"author"];
+                    NSString *vID = item[@"videoId"];
+                    if (title && artist && vID) {
+                        [newResults addObject:@{@"title": title, @"artist": artist, @"videoId": vID}];
+                    }
+                }
             }
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.searchResults = newResults;
@@ -252,6 +321,7 @@ void SendMRCommand(int command) {
     }];
     [task resume];
 }
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.searchResults.count; }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *c = [tableView dequeueReusableCellWithIdentifier:@"c"];
@@ -265,25 +335,18 @@ void SendMRCommand(int command) {
     c.textLabel.text = item[@"title"]; c.detailTextLabel.text = item[@"artist"];
     return c;
 }
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
     NSDictionary *item = self.searchResults[indexPath.row];
-    NSString *title = item[@"title"];
-    NSString *artist = item[@"artist"];
+    NSString *vID = item[@"videoId"];
     
-    // 🎵 ミニプレイヤーの表示を更新！
-    NSString *displayString = [NSString stringWithFormat:@"%@ - %@", title, artist];
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"MSP_TrackChanged" object:displayString];
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"MSP_StateChanged" object:@(YES)];
-    
-    // 🔗 裏にいる本物のYouTube Musicに見えない命令（検索コマンド）を送る
-    NSString *searchQuery = [NSString stringWithFormat:@"%@ %@", title, artist];
-    NSString *encodedQuery = [searchQuery stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
-    NSURL *ytmURL = [NSURL URLWithString:[NSString stringWithFormat:@"youtubemusic://search?q=%@", encodedQuery]];
+    // 🔗 検索結果の曲をタップしても、最強のPremium Modの音だけを裏で叩き起こす！
+    NSURL *ytmURL = [NSURL URLWithString:[NSString stringWithFormat:@"youtubemusic://watch?v=%@", vID]];
     [[UIApplication sharedApplication] openURL:ytmURL options:@{} completionHandler:nil];
     
-    NSLog(@"Music Space Pro: Sent command to background YTM: %@", searchQuery);
+    NSLog(@"Music Space Pro: Instructed background YTM to play ID: %@", vID);
 }
 @end
 
@@ -368,7 +431,7 @@ void SendMRCommand(int command) {
         [self.audioPlayerL pause]; 
         [self.playBtnL setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal]; 
     } else { 
-        SendMRCommand(MR_PAUSE); // YTを止める
+        SendMRCommand(MR_PAUSE);
         [self.audioPlayerL play]; 
         [self.playBtnL setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal]; 
     }
@@ -378,7 +441,7 @@ void SendMRCommand(int command) {
         [self.audioPlayerR pause]; 
         [self.playBtnR setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal]; 
     } else { 
-        SendMRCommand(MR_PAUSE); // YTを止める
+        SendMRCommand(MR_PAUSE);
         [self.audioPlayerR play]; 
         [self.playBtnR setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal]; 
     }
@@ -496,6 +559,7 @@ void SendMRCommand(int command) {
     if (info) {
         NSString *title = info[MPMediaItemPropertyTitle];
         if (title) {
+            // 裏で再生が始まった本物の曲名を横取りして、自作ミニプレイヤーに通知！
             [[NSNotificationCenter defaultCenter] postNotificationName:@"MSP_TrackChanged" object:title];
         }
     }
@@ -510,16 +574,12 @@ void SendMRCommand(int command) {
 %hook UIViewController
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    
-    // 自作UIの画面なら何もしない
     if ([NSStringFromClass([self class]) hasPrefix:@"My"]) return;
 
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        // 1.5秒待機（ここまでは前回成功したのと同じ）
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             
-            // 安全に一番手前の画面（TopVC）を探す
             UIWindow *keyWindow = nil;
             for (UIWindow *window in [UIApplication sharedApplication].windows) {
                 if (window.isKeyWindow) {
@@ -534,12 +594,12 @@ void SendMRCommand(int command) {
                 topVC = topVC.presentedViewController;
             }
 
-            // 無理にウィンドウを作らず、素直に全画面でかぶせる！（最も安定）
+            // 前回の超安定ルートで全画面表示
             MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
             c.modalPresentationStyle = UIModalPresentationFullScreen;
             [topVC presentViewController:c animated:YES completion:nil];
             
-            NSLog(@"Music Space Pro: Stable Overlay Activated!");
+            NSLog(@"Music Space Pro: Stable Overlay with Live Engine Activated!");
         });
     });
 }
