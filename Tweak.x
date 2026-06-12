@@ -166,7 +166,7 @@ void SendMRCommand(int command) {
 
 @implementation MySidebarViewController
 - (void)viewDidLoad {
-    [super viewDidLoad];
+    [super viewDidLoad]; // ⭕️ ここにあった不要なコードを完全に除去済み！
     self.view.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.1 alpha:1.0];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(25, 70, 200, 30)];
@@ -201,10 +201,9 @@ void SendMRCommand(int command) {
     [self addCustomHeaderWithTitle:@"ホーム" container:self.containerVC];
 
     UILabel *welcome = [[UILabel alloc] initWithFrame:CGRectMake(20, 120, 300, 30)];
-    welcome.text = @"あなたへのおすすめ"; welcome.textColor = [UIColor whiteColor]; welcome.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
+    welcome.text = @"今日のトップソング"; welcome.textColor = [UIColor whiteColor]; welcome.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     [self.view addSubview:welcome];
 
-    // 4つのカードのスロットを生成
     for (int i=0; i<4; i++) {
         UIView *card = [[UIView alloc] initWithFrame:CGRectMake(20 + (i%2)*170, 160 + (i/2)*180, 160, 170)];
         card.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.05]; card.layer.cornerRadius = 8;
@@ -228,19 +227,19 @@ void SendMRCommand(int command) {
         [self.cardViews addObject:card];
     }
     
-    // 🌐 【新配線】YouTubeのトレンド（人気曲）を裏から爆速で4曲取得しておすすめに格納
-    NSURL *url = [NSURL URLWithString:@"https://vid.puffyan.us/api/v1/popular"];
+    // 🌐 【最強の配線】絶対に落ちないApple公式のトップソングAPIへ接続！
+    NSURL *url = [NSURL URLWithString:@"https://itunes.apple.com/jp/rss/topsongs/limit=4/json"];
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (data && !error) {
-            NSArray *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            if ([json isKindOfClass:[NSArray class]]) {
-                for (NSDictionary *item in json) {
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            NSArray *entries = json[@"feed"][@"entry"];
+            if ([entries isKindOfClass:[NSArray class]]) {
+                for (NSDictionary *item in entries) {
                     if (self.trendingResults.count >= 4) break;
-                    NSString *title = item[@"title"];
-                    NSString *artist = item[@"author"];
-                    NSString *vID = item[@"videoId"];
-                    if (title && artist && vID) {
-                        [self.trendingResults addObject:@{@"title": title, @"artist": artist, @"videoId": vID}];
+                    NSString *title = item[@"im:name"][@"label"];
+                    NSString *artist = item[@"im:artist"][@"label"];
+                    if (title && artist) {
+                        [self.trendingResults addObject:@{@"title": title, @"artist": artist}];
                     }
                 }
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -264,9 +263,17 @@ void SendMRCommand(int command) {
     NSInteger index = gesture.view.tag;
     if (index < self.trendingResults.count) {
         NSDictionary *item = self.trendingResults[index];
-        NSString *vID = item[@"videoId"];
-        // 🔗 鍵（動画ID）を使って、裏のYouTube Musicに直接高音質ストリーミング再生を命令！
-        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"youtubemusic://watch?v=%@", vID]];
+        NSString *title = item[@"title"];
+        NSString *artist = item[@"artist"];
+        
+        // ミニプレイヤーの文字を更新
+        NSString *displayString = [NSString stringWithFormat:@"%@ - %@", title, artist];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"MSP_TrackChanged" object:displayString];
+        
+        // 🔗 検索キーワードを作って裏のYouTube Musicに検索命令を送る！
+        NSString *searchQuery = [NSString stringWithFormat:@"%@ %@", title, artist];
+        NSString *encodedQuery = [searchQuery stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"youtubemusic://search?q=%@", encodedQuery]];
         [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
     }
 }
@@ -294,22 +301,20 @@ void SendMRCommand(int command) {
     NSString *query = searchBar.text;
     if (!query || query.length == 0) return;
     
+    // 🌐 検索も絶対に落ちないAppleのデータベースを使用！
     NSString *encodedQuery = [query stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
-    // 🌐 【新配線】YouTubeの動画IDが直接引っこ抜ける検索APIへ接続変更
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://vid.puffyan.us/api/v1/search?q=%@&type=video", encodedQuery]];
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://itunes.apple.com/search?term=%@&entity=song&country=jp&limit=30", encodedQuery]];
     
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (data && !error) {
-            NSArray *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            NSArray *results = json[@"results"];
             NSMutableArray *newResults = [NSMutableArray array];
-            if ([json isKindOfClass:[NSArray class]]) {
-                for (NSDictionary *item in json) {
-                    NSString *title = item[@"title"];
-                    NSString *artist = item[@"author"];
-                    NSString *vID = item[@"videoId"];
-                    if (title && artist && vID) {
-                        [newResults addObject:@{@"title": title, @"artist": artist, @"videoId": vID}];
-                    }
+            for (NSDictionary *item in results) {
+                NSString *title = item[@"trackName"];
+                NSString *artist = item[@"artistName"];
+                if (title && artist) {
+                    [newResults addObject:@{@"title": title, @"artist": artist}];
                 }
             }
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -339,13 +344,18 @@ void SendMRCommand(int command) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
     NSDictionary *item = self.searchResults[indexPath.row];
-    NSString *vID = item[@"videoId"];
+    NSString *title = item[@"title"];
+    NSString *artist = item[@"artist"];
     
-    // 🔗 検索結果の曲をタップしても、最強のPremium Modの音だけを裏で叩き起こす！
-    NSURL *ytmURL = [NSURL URLWithString:[NSString stringWithFormat:@"youtubemusic://watch?v=%@", vID]];
+    // ミニプレイヤーの文字を更新
+    NSString *displayString = [NSString stringWithFormat:@"%@ - %@", title, artist];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"MSP_TrackChanged" object:displayString];
+    
+    // 🔗 裏側のYouTube Musicに検索命令を送る！
+    NSString *searchQuery = [NSString stringWithFormat:@"%@ %@", title, artist];
+    NSString *encodedQuery = [searchQuery stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+    NSURL *ytmURL = [NSURL URLWithString:[NSString stringWithFormat:@"youtubemusic://search?q=%@", encodedQuery]];
     [[UIApplication sharedApplication] openURL:ytmURL options:@{} completionHandler:nil];
-    
-    NSLog(@"Music Space Pro: Instructed background YTM to play ID: %@", vID);
 }
 @end
 
@@ -558,7 +568,6 @@ void SendMRCommand(int command) {
     if (info) {
         NSString *title = info[MPMediaItemPropertyTitle];
         if (title) {
-            // 裏で再生が始まった本物の曲名を横取りして、自作ミニプレイヤーに通知！
             [[NSNotificationCenter defaultCenter] postNotificationName:@"MSP_TrackChanged" object:title];
         }
     }
@@ -593,7 +602,6 @@ void SendMRCommand(int command) {
                 topVC = topVC.presentedViewController;
             }
 
-            // 前回の超安定ルートで全画面表示
             MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
             c.modalPresentationStyle = UIModalPresentationFullScreen;
             [topVC presentViewController:c animated:YES completion:nil];
