@@ -166,7 +166,6 @@ void SendMRCommand(int command) {
 
 @implementation MySidebarViewController
 - (void)viewDidLoad {
-    [super iPad];
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.1 alpha:1.0];
 
