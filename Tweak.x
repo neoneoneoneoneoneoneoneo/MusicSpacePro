@@ -462,30 +462,40 @@ void SendMRCommand(int command) {
 }
 %end
 
-%hook UIViewController
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    if ([NSStringFromClass([self class]) hasPrefix:@"My"]) return;
+%ctor {
+    // 🛡️ iOSから「アプリの準備完了」の合図が出たときだけ実行する
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification * _Nonnull note) {
+        
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            // 念のため1.5秒待機して確実に安全を確保
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                
+                // 現在一番手前にあるメインの窓（UIWindow）を安全に探す
+                UIWindow *keyWindow = nil;
+                for (UIWindow *window in [UIApplication sharedApplication].windows) {
+                    if (window.isKeyWindow) {
+                        keyWindow = window;
+                        break;
+                    }
+                }
+                if (!keyWindow) return;
 
-    // 🛡️ 強力なロックと1.5秒の待機時間
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            
-            MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
-            c.modalPresentationStyle = UIModalPresentationFullScreen;
-            
-            UIViewController *topVC = self;
-            while (topVC.presentedViewController) {
-                topVC = topVC.presentedViewController;
-            }
-            [topVC presentViewController:c animated:YES completion:nil];
-            
-            NSLog(@"Music Space Pro: Successfully Hijacked!");
+                UIViewController *topVC = keyWindow.rootViewController;
+                while (topVC.presentedViewController) {
+                    topVC = topVC.presentedViewController;
+                }
+
+                // 自作UIを被せる
+                MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
+                c.modalPresentationStyle = UIModalPresentationFullScreen;
+                [topVC presentViewController:c animated:YES completion:nil];
+                
+                NSLog(@"Music Space Pro: Successfully Hijacked (Safe Mode)!");
+            });
         });
-    });
+    }];
 }
-%end
 
 // =========================================================
 // 🔓 Googleログイン突破パッチ (YTSignInFix)
