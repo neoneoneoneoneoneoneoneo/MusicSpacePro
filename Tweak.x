@@ -510,28 +510,40 @@ void SendMRCommand(int command) {
 // 最上位に君臨し続けるための専用ウィンドウ（絶対領域）
 static UIWindow *musicSpaceWindow = nil;
 
-%ctor {
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification * _Nonnull note) {
-        
-        static dispatch_once_t onceToken;
-        dispatch_once(&onceToken, ^{
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                
-                // 🛡️ iOSのシステム警告よりもさらに上の層に「第2の画面」を生成して固定する！
+%hook UIViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    
+    // 自作UIの画面なら何もしない
+    if ([NSStringFromClass([self class]) hasPrefix:@"My"]) return;
+
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        // アプリが安定するまで1.5秒待つ
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            
+            // 🛡️ 本物のYouTube Musicから「Scene（通行証）」を奪い取る！
+            UIWindowScene *windowScene = self.view.window.windowScene;
+            
+            if (windowScene) {
+                musicSpaceWindow = [[UIWindow alloc] initWithWindowScene:windowScene];
+            } else {
                 musicSpaceWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-                musicSpaceWindow.windowLevel = UIWindowLevelAlert + 1;
-                
-                MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
-                musicSpaceWindow.rootViewController = c;
-                
-                // ウィンドウを表示（本物のYouTube Musicは完全に裏側に隠れる）
-                [musicSpaceWindow makeKeyAndVisible];
-                
-                NSLog(@"Music Space Pro: Absolute Overlay Window Activated!");
-            });
+            }
+            
+            // アラートよりも上に固定
+            musicSpaceWindow.windowLevel = UIWindowLevelAlert + 1;
+            
+            // 自作UIをセットして表示！
+            MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
+            musicSpaceWindow.rootViewController = c;
+            [musicSpaceWindow makeKeyAndVisible];
+            
+            NSLog(@"Music Space Pro: Absolute Overlay Window Activated with Scene!");
         });
-    }];
+    });
 }
+%end
 
 // =========================================================
 // 🔓 Googleログイン突破パッチ (YTSignInFix)
