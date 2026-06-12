@@ -2,7 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <MediaPlayer/MediaPlayer.h>
-#include <dlfcn.h> // 🌟究極の裏技ツールをインポート
+#include <dlfcn.h>
 
 // =========================================================
 // 🎵 MediaRemote (強制ダイナミックロード版)
@@ -10,7 +10,6 @@
 #define MR_TOGGLE_PLAY_PAUSE 2
 #define MR_PAUSE 1
 
-// クラウドMacのエラーを回避するため、実行時にiPhone内部から直接コマンドを引っ張り出す
 void SendMRCommand(int command) {
     void *mr = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY);
     if (mr) {
@@ -201,6 +200,7 @@ void SendMRCommand(int command) {
     welcome.text = @"あなたへのおすすめ"; welcome.textColor = [UIColor whiteColor]; welcome.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     [self.view addSubview:welcome];
 
+    // 今はまだ空のカードですが、ここに将来APIから取ったデータが入ります
     for (int i=0; i<4; i++) {
         UIView *card = [[UIView alloc] initWithFrame:CGRectMake(20 + (i%2)*170, 160 + (i/2)*180, 160, 170)];
         card.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.05]; card.layer.cornerRadius = 8;
@@ -214,7 +214,7 @@ void SendMRCommand(int command) {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.05 alpha:1.0];
     self.searchResults = [NSMutableArray array];
-    [self addCustomHeaderWithTitle:@"YouTube Music 検索" container:self.containerVC];
+    [self addCustomHeaderWithTitle:@"音楽検索" container:self.containerVC];
 
     self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(10, 100, self.view.bounds.size.width-20, 50)];
     self.searchBar.delegate = self; self.searchBar.placeholder = @"曲名、アーティスト...";
@@ -229,16 +229,61 @@ void SendMRCommand(int command) {
     [searchBar resignFirstResponder];
     NSString *query = searchBar.text;
     if (!query || query.length == 0) return;
-    NSLog(@"Music Space Pro: Search requested for %@", query);
+    
+    // 🌐 外部APIを使って本物の曲データを取得してリストに表示する
+    NSString *encodedQuery = [query stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://itunes.apple.com/search?term=%@&entity=song&country=jp&limit=30", encodedQuery]];
+    
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (data && !error) {
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            NSArray *results = json[@"results"];
+            NSMutableArray *newResults = [NSMutableArray array];
+            for (NSDictionary *item in results) {
+                NSString *title = item[@"trackName"];
+                NSString *artist = item[@"artistName"];
+                if (title && artist) [newResults addObject:@{@"title": title, @"artist": artist}];
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.searchResults = newResults;
+                [self.tableView reloadData];
+            });
+        }
+    }];
+    [task resume];
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.searchResults.count; }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *c = [tableView dequeueReusableCellWithIdentifier:@"c"] ?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"c"];
-    c.backgroundColor = [UIColor clearColor]; c.textLabel.textColor = [UIColor whiteColor]; c.detailTextLabel.textColor = [UIColor lightGrayColor];
+    UITableViewCell *c = [tableView dequeueReusableCellWithIdentifier:@"c"];
+    if (!c) {
+        c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"c"];
+        c.backgroundColor = [UIColor clearColor]; c.textLabel.textColor = [UIColor whiteColor]; 
+        c.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
+        c.detailTextLabel.textColor = [UIColor lightGrayColor];
+    }
+    NSDictionary *item = self.searchResults[indexPath.row];
+    c.textLabel.text = item[@"title"]; c.detailTextLabel.text = item[@"artist"];
     return c;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    NSDictionary *item = self.searchResults[indexPath.row];
+    NSString *title = item[@"title"];
+    NSString *artist = item[@"artist"];
+    
+    // 🎵 ミニプレイヤーの表示を更新！
+    NSString *displayString = [NSString stringWithFormat:@"%@ - %@", title, artist];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"MSP_TrackChanged" object:displayString];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"MSP_StateChanged" object:@(YES)];
+    
+    // 🔗 裏にいる本物のYouTube Musicに見えない命令（検索コマンド）を送る
+    NSString *searchQuery = [NSString stringWithFormat:@"%@ %@", title, artist];
+    NSString *encodedQuery = [searchQuery stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+    NSURL *ytmURL = [NSURL URLWithString:[NSString stringWithFormat:@"youtubemusic://search?q=%@", encodedQuery]];
+    [[UIApplication sharedApplication] openURL:ytmURL options:@{} completionHandler:nil];
+    
+    NSLog(@"Music Space Pro: Sent command to background YTM: %@", searchQuery);
 }
 @end
 
@@ -323,7 +368,7 @@ void SendMRCommand(int command) {
         [self.audioPlayerL pause]; 
         [self.playBtnL setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal]; 
     } else { 
-        SendMRCommand(MR_PAUSE); // 🌟裏技でYouTubeを停止
+        SendMRCommand(MR_PAUSE); // YTを止める
         [self.audioPlayerL play]; 
         [self.playBtnL setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal]; 
     }
@@ -333,7 +378,7 @@ void SendMRCommand(int command) {
         [self.audioPlayerR pause]; 
         [self.playBtnR setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal]; 
     } else { 
-        SendMRCommand(MR_PAUSE); // 🌟裏技でYouTubeを停止
+        SendMRCommand(MR_PAUSE); // YTを止める
         [self.audioPlayerR play]; 
         [self.playBtnR setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal]; 
     }
@@ -400,7 +445,7 @@ void SendMRCommand(int command) {
     [self.miniPlayerPlayBtn setImage:[UIImage systemImageNamed:isPlaying ? @"pause.fill" : @"play.fill"] forState:UIControlStateNormal];
 }
 - (void)miniPlayerPlayTapped {
-    SendMRCommand(MR_TOGGLE_PLAY_PAUSE); // 🌟裏技でYouTubeを操作
+    SendMRCommand(MR_TOGGLE_PLAY_PAUSE);
 }
 @end
 
@@ -442,7 +487,7 @@ void SendMRCommand(int command) {
 @end
 
 // =========================================================
-// 🚀 3. フック部分 (YouTube Musicの乗っ取り)
+// 🚀 3. フック部分 (YouTube Musicの乗っ取り＆絶対領域生成)
 // =========================================================
 
 %hook MPNowPlayingInfoCenter
@@ -462,36 +507,27 @@ void SendMRCommand(int command) {
 }
 %end
 
+// 最上位に君臨し続けるための専用ウィンドウ（絶対領域）
+static UIWindow *musicSpaceWindow = nil;
+
 %ctor {
-    // 🛡️ iOSから「アプリの準備完了」の合図が出たときだけ実行する
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification * _Nonnull note) {
         
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
-            // 念のため1.5秒待機して確実に安全を確保
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 
-                // 現在一番手前にあるメインの窓（UIWindow）を安全に探す
-                UIWindow *keyWindow = nil;
-                for (UIWindow *window in [UIApplication sharedApplication].windows) {
-                    if (window.isKeyWindow) {
-                        keyWindow = window;
-                        break;
-                    }
-                }
-                if (!keyWindow) return;
-
-                UIViewController *topVC = keyWindow.rootViewController;
-                while (topVC.presentedViewController) {
-                    topVC = topVC.presentedViewController;
-                }
-
-                // 自作UIを被せる
-                MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
-                c.modalPresentationStyle = UIModalPresentationFullScreen;
-                [topVC presentViewController:c animated:YES completion:nil];
+                // 🛡️ iOSのシステム警告よりもさらに上の層に「第2の画面」を生成して固定する！
+                musicSpaceWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+                musicSpaceWindow.windowLevel = UIWindowLevelAlert + 1;
                 
-                NSLog(@"Music Space Pro: Successfully Hijacked (Safe Mode)!");
+                MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
+                musicSpaceWindow.rootViewController = c;
+                
+                // ウィンドウを表示（本物のYouTube Musicは完全に裏側に隠れる）
+                [musicSpaceWindow makeKeyAndVisible];
+                
+                NSLog(@"Music Space Pro: Absolute Overlay Window Activated!");
             });
         });
     }];
