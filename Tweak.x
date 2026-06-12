@@ -444,7 +444,6 @@ void SendMRCommand(int command) {
 // =========================================================
 // 🚀 3. フック部分 (YouTube Musicの乗っ取り)
 // =========================================================
-static BOOL hasHijacked = NO;
 
 %hook MPNowPlayingInfoCenter
 - (void)setNowPlayingInfo:(NSDictionary *)info {
@@ -468,19 +467,23 @@ static BOOL hasHijacked = NO;
     %orig;
     if ([NSStringFromClass([self class]) hasPrefix:@"My"]) return;
 
-    if (!hasHijacked && self.view.window && self.view.window.rootViewController == self) {
-        hasHijacked = YES;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    // 🛡️ 強力なロックと1.5秒の待機時間
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            
             MyMainContainerViewController *c = [[MyMainContainerViewController alloc] init];
             c.modalPresentationStyle = UIModalPresentationFullScreen;
             
             UIViewController *topVC = self;
-            while (topVC.presentedViewController) topVC = topVC.presentedViewController;
-           [topVC presentViewController:c animated:YES completion:nil];
+            while (topVC.presentedViewController) {
+                topVC = topVC.presentedViewController;
+            }
+            [topVC presentViewController:c animated:YES completion:nil];
             
-            NSLog(@"Music Space Pro: YouTube Music UI Hijacked!");
+            NSLog(@"Music Space Pro: Successfully Hijacked!");
         });
-    }
+    });
 }
 %end
 
