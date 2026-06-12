@@ -476,7 +476,7 @@ static BOOL hasHijacked = NO;
             
             UIViewController *topVC = self;
             while (topVC.presentedViewController) topVC = topVC.presentedViewController;
-           //[topVC presentViewController:c animated:YES completion:nil];
+           [topVC presentViewController:c animated:YES completion:nil];
             
             NSLog(@"Music Space Pro: YouTube Music UI Hijacked!");
         });
